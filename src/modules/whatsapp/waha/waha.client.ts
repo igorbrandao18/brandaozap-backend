@@ -328,10 +328,133 @@ export class WahaClient {
   async getChats(sessionId: string): Promise<any[]> {
     try {
       // WAHA Core usa: /api/{session}/chats
-      const response = await this.axiosInstance.get(`/api/${sessionId}/chats`);
+      // Tentar primeiro o endpoint /chats/overview que retorna informações resumidas
+      try {
+        this.logger.log(`📤 GET /api/${sessionId}/chats/overview - Tentando endpoint overview...`);
+        const overviewResponse = await this.axiosInstance.get(`/api/${sessionId}/chats/overview`);
+        this.logger.log(`✅ Overview retornou ${overviewResponse.data?.length || 0} chats`);
+        return overviewResponse.data || [];
+      } catch (overviewError: any) {
+        // Se overview não existir, usar o endpoint padrão /chats
+        this.logger.log(`⚠️ Overview não disponível (${overviewError.response?.status}), tentando /chats...`);
+        const response = await this.axiosInstance.get(`/api/${sessionId}/chats`);
+        this.logger.log(`✅ Chats retornou ${response.data?.length || 0} chats`);
+        return response.data || [];
+      }
+    } catch (error: any) {
+      this.logger.error(`Error getting chats for session ${sessionId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getChatMessages(sessionId: string, chatId: string, limit?: number, page?: number): Promise<any[]> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      if (page) params.append('page', page.toString());
+      
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      this.logger.log(`📤 GET /api/${sessionId}/chats/${encodedChatId}/messages${queryString}`);
+      const response = await this.axiosInstance.get(`/api/${sessionId}/chats/${encodedChatId}/messages${queryString}`);
       return response.data || [];
     } catch (error: any) {
-      this.logger.error(`Error getting chats for session ${sessionId}:`, error);
+      this.logger.error(`Error getting messages for chat ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getChatPicture(sessionId: string, chatId: string): Promise<string> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      const response = await this.axiosInstance.get(`/api/${sessionId}/chats/${encodedChatId}/picture`, {
+        responseType: 'arraybuffer',
+      });
+      const base64 = Buffer.from(response.data).toString('base64');
+      return `data:image/jpeg;base64,${base64}`;
+    } catch (error: any) {
+      this.logger.error(`Error getting chat picture for ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async archiveChat(sessionId: string, chatId: string): Promise<void> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      await this.axiosInstance.post(`/api/${sessionId}/chats/${encodedChatId}/archive`);
+    } catch (error: any) {
+      this.logger.error(`Error archiving chat ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async unarchiveChat(sessionId: string, chatId: string): Promise<void> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      await this.axiosInstance.post(`/api/${sessionId}/chats/${encodedChatId}/unarchive`);
+    } catch (error: any) {
+      this.logger.error(`Error unarchiving chat ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async deleteChat(sessionId: string, chatId: string): Promise<void> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      await this.axiosInstance.delete(`/api/${sessionId}/chats/${encodedChatId}`);
+    } catch (error: any) {
+      this.logger.error(`Error deleting chat ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async markMessagesAsRead(sessionId: string, chatId: string): Promise<void> {
+    try {
+      const encodedChatId = encodeURIComponent(chatId);
+      await this.axiosInstance.post(`/api/${sessionId}/chats/${encodedChatId}/messages/read`);
+    } catch (error: any) {
+      this.logger.error(`Error marking messages as read for ${chatId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getContacts(sessionId: string): Promise<any[]> {
+    try {
+      const response = await this.axiosInstance.get(`/api/${sessionId}/contacts`);
+      return response.data || [];
+    } catch (error: any) {
+      this.logger.error(`Error getting contacts for session ${sessionId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getContact(sessionId: string, contactId: string): Promise<any> {
+    try {
+      const encodedContactId = encodeURIComponent(contactId);
+      const response = await this.axiosInstance.get(`/api/${sessionId}/contacts/${encodedContactId}`);
+      return response.data;
+    } catch (error: any) {
+      this.logger.error(`Error getting contact ${contactId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getMe(sessionId: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.get(`/api/${sessionId}/me`);
+      return response.data;
+    } catch (error: any) {
+      this.logger.error(`Error getting me info for session ${sessionId}:`, error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async getAllSessions(): Promise<any[]> {
+    try {
+      const response = await this.axiosInstance.get('/api/sessions');
+      return response.data || [];
+    } catch (error: any) {
+      this.logger.error(`Error getting all sessions:`, error.response?.data || error.message);
       throw error;
     }
   }

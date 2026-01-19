@@ -98,7 +98,20 @@ export class MessagesService {
     sessionId?: string,
   ): Promise<any[]> {
     const where: Prisma.ConversationWhereInput = { userId, isArchived: false };
-    if (sessionId) where.sessionId = sessionId;
+    
+    // Se sessionId foi fornecido, converter sessionId único para ID da sessão
+    if (sessionId) {
+      try {
+        // Buscar a sessão pelo sessionId único do usuário
+        const session = await this.whatsappService.getSession(sessionId);
+        // Usar o ID da sessão (UUID) para buscar conversas
+        where.sessionId = session.id;
+      } catch (error) {
+        // Se não encontrou pelo sessionId único, pode ser que sessionId já seja o ID da sessão
+        // Tentar usar diretamente
+        where.sessionId = sessionId;
+      }
+    }
 
     return this.prisma.conversation.findMany({
       where,
@@ -112,10 +125,20 @@ export class MessagesService {
     sessionId: string,
     phoneNumber: string,
   ): Promise<Message[]> {
+    // Converter sessionId único para ID da sessão se necessário
+    let sessionDbId = sessionId;
+    try {
+      const session = await this.whatsappService.getSession(sessionId);
+      sessionDbId = session.id;
+    } catch (error) {
+      // Se não encontrou, usar sessionId diretamente (pode já ser o ID)
+      sessionDbId = sessionId;
+    }
+
     return this.prisma.message.findMany({
       where: {
         userId,
-        sessionId,
+        sessionId: sessionDbId,
         from: phoneNumber,
       },
       include: { contact: true },
@@ -146,8 +169,18 @@ export class MessagesService {
     sessionId: string,
     phoneNumber: string,
   ): Promise<void> {
+    // Converter sessionId único para ID da sessão se necessário
+    let sessionDbId = sessionId;
+    try {
+      const session = await this.whatsappService.getSession(sessionId);
+      sessionDbId = session.id;
+    } catch (error) {
+      // Se não encontrou, usar sessionId diretamente (pode já ser o ID)
+      sessionDbId = sessionId;
+    }
+
     const conversation = await this.prisma.conversation.findFirst({
-      where: { userId, sessionId, phoneNumber },
+      where: { userId, sessionId: sessionDbId, phoneNumber },
     });
 
     if (conversation) {

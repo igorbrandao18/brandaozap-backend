@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { WahaClient } from './waha/waha.client';
 import { UsersService } from '../users/users.service';
+import { ContactsService } from '../contacts/contacts.service';
 import { WhatsAppSession, SessionStatus, Prisma } from '@prisma/client';
 
 @Injectable()
@@ -17,6 +18,7 @@ export class WhatsAppService {
     private readonly prisma: PrismaService,
     private readonly wahaClient: WahaClient,
     private readonly usersService: UsersService,
+    private readonly contactsService: ContactsService,
   ) {}
 
   async createSession(
@@ -688,5 +690,298 @@ export class WhatsAppService {
       this.logger.error(`Error getting chats count for session ${sessionId}:`, error);
       throw error;
     }
+  }
+
+  async syncChatsFromWAHA(sessionId: string, userId: string): Promise<any[]> {
+    const session = await this.getSession(sessionId);
+    
+    if (session.status !== SessionStatus.WORKING) {
+      throw new BadRequestException('Session is not working');
+    }
+
+    const wahaSessionId = 'default'; // WAHA Core só suporta "default"
+    
+    try {
+      const wahaChats = await this.wahaClient.getChats(wahaSessionId);
+      this.logger.log(`Found ${wahaChats.length} chats in WAHA for session ${sessionId}`);
+      
+      // Sincronizar chats do WAHA com conversas no banco
+      const conversations: any[] = [];
+      
+      for (const chat of wahaChats) {
+        // Parse do chat ID do WAHA (formato: 5511999999999@c.us ou grupo@g.us)
+        const originalChatId = chat.id || chat.chatId || '';
+        let phoneNumber = originalChatId;
+        if (phoneNumber.includes('@c.us')) {
+          phoneNumber = phoneNumber.replace('@c.us', '');
+        } else if (phoneNumber.includes('@g.us')) {
+          phoneNumber = phoneNumber.replace('@g.us', '');
+        }
+        
+        // Nome do contato/grupo - garantir que seja string
+        let contactName = phoneNumber;
+        if (chat.name) {
+          if (typeof chat.name === 'string') {
+            contactName = chat.name;
+          } else if (typeof chat.name === 'object' && chat.name !== null) {
+            // Para grupos, pode vir como objeto com propriedades como 'name', 'subject', etc.
+            contactName = (chat.name as any).name || (chat.name as any).subject || (chat.name as any).formattedName || String(chat.name);
+          } else {
+            contactName = String(chat.name);
+          }
+        } else if (chat.pushname) {
+          contactName = typeof chat.pushname === 'string' ? chat.pushname : String(chat.pushname);
+        } else if (chat.contactName) {
+          contactName = typeof chat.contactName === 'string' ? chat.contactName : String(chat.contactName);
+        } else if (chat.subject) {
+          // Para grupos, pode ter 'subject' em vez de 'name'
+          contactName = typeof chat.subject === 'string' ? chat.subject : String(chat.subject);
+        }
+        
+        // Foto do chat (se disponível)
+        const chatPicture = chat.picture || null;
+        
+        // Última mensagem - garantir que seja string legível
+        let lastMessage = '';
+        if (chat.lastMessage) {
+          if (typeof chat.lastMessage === 'string') {
+            lastMessage = chat.lastMessage;
+          } else if (typeof chat.lastMessage === 'object' && chat.lastMessage !== null) {
+            const msgObj = chat.lastMessage as any;
+            
+            // Tentar extrair texto legível de diferentes propriedades
+            // WAHA pode retornar em diferentes formatos
+            if (msgObj.body && typeof msgObj.body === 'string') {
+              lastMessage = msgObj.body;
+            } else if (msgObj.text && typeof msgObj.text === 'string') {
+              lastMessage = msgObj.text;
+            } else if (msgObj.message && typeof msgObj.message === 'string') {
+              lastMessage = msgObj.message;
+            } else if (msgObj.content && typeof msgObj.content === 'string') {
+              lastMessage = msgObj.content;
+            } else if (msgObj.caption && typeof msgObj.caption === 'string') {
+              lastMessage = msgObj.caption;
+            } else if (msgObj.type) {
+              // Se tem tipo mas não tem texto legível, mostrar tipo de mídia
+              const msgType = String(msgObj.type).toLowerCase();
+              if (msgType === 'image' || msgType === 'photo') {
+                lastMessage = msgObj.caption ? `📷 ${msgObj.caption}` : '📷 Imagem';
+              } else if (msgType === 'video') {
+                lastMessage = msgObj.caption ? `🎥 ${msgObj.caption}` : '🎥 Vídeo';
+              } else if (msgType === 'audio' || msgType === 'ptt') {
+                lastMessage = '🎵 Áudio';
+              } else if (msgType === 'document' || msgType === 'file') {
+                lastMessage = msgObj.filename ? `📄 ${msgObj.filename}` : '📄 Documento';
+              } else if (msgType === 'location') {
+                lastMessage = '📍 Localização';
+              } else if (msgType === 'contact') {
+                lastMessage = '👤 Contato';
+              } else if (msgType === 'sticker') {
+                lastMessage = '😀 Sticker';
+              } else if (msgType === 'link' || msgObj.url) {
+                lastMessage = msgObj.url ? `🔗 ${msgObj.url.substring(0, 50)}` : '🔗 Link';
+              } else {
+                // Se não conseguir identificar, tentar pegar qualquer propriedade string
+                const stringProps = Object.values(msgObj).find((val: any) => 
+                  typeof val === 'string' && 
+                  val.length > 0 && 
+                  val.length < 200 &&
+                  !val.includes('@') &&
+                  !val.startsWith('false_') &&
+                  !val.match(/^[a-f0-9]{24}$/i) // Não IDs MongoDB
+                );
+                if (stringProps) {
+                  lastMessage = String(stringProps);
+                } else {
+                  lastMessage = '[Mensagem]';
+                }
+              }
+            } else {
+              // Se não tem tipo nem propriedades conhecidas, tentar pegar primeira propriedade string legível
+              const stringProps = Object.values(msgObj).find((val: any) => 
+                typeof val === 'string' && 
+                val.length > 0 && 
+                val.length < 200 &&
+                !val.includes('@') &&
+                !val.startsWith('false_') &&
+                !val.match(/^[a-f0-9]{24}$/i) // Não IDs MongoDB
+              );
+              if (stringProps) {
+                lastMessage = String(stringProps);
+              } else {
+                lastMessage = '[Mensagem]';
+              }
+            }
+            
+            // Limitar tamanho da mensagem
+            if (lastMessage.length > 100) {
+              lastMessage = lastMessage.substring(0, 100) + '...';
+            }
+          } else {
+            lastMessage = String(chat.lastMessage);
+          }
+        }
+        
+        // Timestamp da última mensagem
+        let lastMessageTime = new Date();
+        if (chat.lastMessage?.timestamp) {
+          // WAHA pode retornar timestamp em segundos ou milissegundos
+          const timestamp = chat.lastMessage.timestamp;
+          lastMessageTime = timestamp > 1000000000000 
+            ? new Date(timestamp) 
+            : new Date(timestamp * 1000);
+        } else if (chat.timestamp) {
+          const timestamp = chat.timestamp;
+          lastMessageTime = timestamp > 1000000000000 
+            ? new Date(timestamp) 
+            : new Date(timestamp * 1000);
+        } else if (chat.updatedAt) {
+          lastMessageTime = new Date(chat.updatedAt);
+        }
+        
+        // Garantir que contactName seja string antes de salvar
+        const contactNameString = typeof contactName === 'string' 
+          ? contactName 
+          : (typeof contactName === 'object' && contactName !== null
+              ? ((contactName as any).name || (contactName as any).subject || (contactName as any).formattedName || String(contactName))
+              : String(contactName));
+        
+        // Buscar ou criar contato
+        let contact = await this.contactsService.findByPhoneNumber(phoneNumber, userId);
+        
+        if (!contact) {
+          contact = await this.contactsService.create(
+            userId,
+            contactNameString,
+            phoneNumber,
+          );
+        } else {
+          // Atualizar nome do contato se mudou (especialmente para grupos)
+          if (contact.name !== contactNameString) {
+            contact = await this.contactsService.update(contact.id, userId, { 
+              name: contactNameString 
+            });
+          }
+        }
+        
+        // Buscar ou criar conversa
+        let conversation = await this.prisma.conversation.findFirst({
+          where: { userId, sessionId: session.id, phoneNumber },
+        });
+        
+        if (conversation) {
+          // Atualizar conversa existente
+          conversation = await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessage: lastMessage.substring(0, 200), // Limitar tamanho
+              lastMessageType: chat.lastMessage?.type || 'text',
+              contactId: contact.id,
+              updatedAt: lastMessageTime,
+            },
+            include: { contact: true },
+          });
+        } else {
+          // Criar nova conversa
+          conversation = await this.prisma.conversation.create({
+            data: {
+              userId,
+              sessionId: session.id,
+              phoneNumber,
+              contactId: contact.id,
+              lastMessage: lastMessage.substring(0, 200),
+              lastMessageType: chat.lastMessage?.type || 'text',
+              unreadCount: chat.unreadCount || 0,
+            },
+            include: { contact: true },
+          });
+        }
+        
+        // Adicionar foto do chat se disponível no objeto chat do WAHA
+        // A foto será buscada no frontend quando necessário (lazy loading)
+        conversations.push({
+          ...conversation,
+          unreadCount: chat.unreadCount || 0,
+          picture: chatPicture || null, // Usar foto do WAHA se disponível
+          chatId: originalChatId, // Manter chatId original para buscar foto depois
+        } as any);
+      }
+      
+      return conversations.sort((a: any, b: any) => 
+        new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()
+      );
+    } catch (error: any) {
+      this.logger.error(`Error syncing chats from WAHA for session ${sessionId}:`, error);
+      throw error;
+    }
+  }
+
+  // ========== CHATS PROXY METHODS ==========
+  async getChatsFromWAHA(sessionId: string): Promise<any[]> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getChats(wahaSessionId);
+  }
+
+  async getChatPicture(sessionId: string, chatId: string): Promise<string> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getChatPicture(wahaSessionId, chatId);
+  }
+
+  async archiveChat(sessionId: string, chatId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    await this.wahaClient.archiveChat(wahaSessionId, chatId);
+  }
+
+  async unarchiveChat(sessionId: string, chatId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    await this.wahaClient.unarchiveChat(wahaSessionId, chatId);
+  }
+
+  async deleteChat(sessionId: string, chatId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    await this.wahaClient.deleteChat(wahaSessionId, chatId);
+  }
+
+  // ========== MESSAGES PROXY METHODS ==========
+  async getChatMessages(
+    sessionId: string,
+    chatId: string,
+    limit?: number,
+    page?: number,
+  ): Promise<any[]> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getChatMessages(wahaSessionId, chatId, limit, page);
+  }
+
+  async markMessagesAsRead(sessionId: string, chatId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    await this.wahaClient.markMessagesAsRead(wahaSessionId, chatId);
+  }
+
+  // ========== CONTACTS PROXY METHODS ==========
+  async getContacts(sessionId: string): Promise<any[]> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getContacts(wahaSessionId);
+  }
+
+  async getContact(sessionId: string, contactId: string): Promise<any> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getContact(wahaSessionId, contactId);
+  }
+
+  // ========== STATUS PROXY METHODS ==========
+  async getMe(sessionId: string): Promise<any> {
+    const session = await this.getSession(sessionId);
+    const wahaSessionId = 'default';
+    return this.wahaClient.getMe(wahaSessionId);
   }
 }
