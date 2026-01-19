@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: brandaozap-postgres-dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: brandaozap
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: brandaozap-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  waha:
+    image: devlikeapro/waha
+    platform: linux/amd64
+    container_name: brandaozap-waha-dev
+    ports:
+      - "3002:3000"
+    environment:
+      - WAHA_API_KEY=042cfecc277d4d029c65a630c593ff0f
+      - WAHA_WEBHOOK_URL=http://host.docker.internal:3001/api/webhooks/waha
+      - WAHA_DASHBOARD_USERNAME=admin
+      - WAHA_DASHBOARD_PASSWORD=admin123
+      - WHATSAPP_SWAGGER_USERNAME=admin
+      - WHATSAPP_SWAGGER_PASSWORD=admin123
+    volumes:
+      - waha_data_dev:/app/.sessions
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: brandaozap-backend-dev
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/brandaozap?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: your-secret-key-change-in-production
+      JWT_EXPIRES_IN: 1d
+      WAHA_BASE_URL: http://waha:3000
+      WAHA_API_KEY: 042cfecc277d4d029c65a630c593ff0f
+      CORS_ORIGIN: http://localhost:3000
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - ./node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      waha:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ../brandaozap-frontend
+      dockerfile: Dockerfile.dev
+    container_name: brandaozap-frontend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001/api
+      API_BASE_URL: http://backend:3001/api
+    volumes:
+      - ../brandaozap-frontend/src:/app/src
+      - ../brandaozap-frontend/public:/app/public
+      - ../brandaozap-frontend/node_modules:/app/node_modules
+      - ../brandaozap-frontend/.next:/app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
+  waha_data_dev:

@@ -1,0 +1,242 @@
+# 🏗️ BrandaoZap Backend - Regras e Boas Práticas
+
+## 📋 Arquitetura
+
+### Estrutura de Módulos (NestJS)
+
+```
+src/
+├── main.ts                    # Bootstrap da aplicação
+├── app.module.ts              # Módulo raiz
+├── config/                    # Configurações
+│   ├── database.config.ts
+│   ├── waha.config.ts
+│   └── app.config.ts
+├── common/                    # Utilitários compartilhados
+│   ├── decorators/
+│   ├── filters/
+│   ├── guards/
+│   ├── interceptors/
+│   └── pipes/
+├── modules/
+│   ├── auth/                  # Autenticação e autorização
+│   │   ├── auth.module.ts
+│   │   ├── auth.controller.ts
+│   │   ├── auth.service.ts
+│   │   ├── strategies/
+│   │   └── guards/
+│   ├── users/                 # Gestão de usuários
+│   │   ├── users.module.ts
+│   │   ├── users.controller.ts
+│   │   ├── users.service.ts
+│   │   └── entities/
+│   ├── whatsapp/              # Integração WAHA
+│   │   ├── whatsapp.module.ts
+│   │   ├── whatsapp.controller.ts
+│   │   ├── whatsapp.service.ts
+│   │   ├── waha/
+│   │   │   ├── waha.service.ts
+│   │   │   └── waha.client.ts
+│   │   └── sessions/
+│   ├── flows/                 # Construtor de fluxos
+│   │   ├── flows.module.ts
+│   │   ├── flows.controller.ts
+│   │   ├── flows.service.ts
+│   │   ├── entities/
+│   │   └── dto/
+│   ├── keywords/               # Palavras-chave
+│   │   ├── keywords.module.ts
+│   │   ├── keywords.controller.ts
+│   │   ├── keywords.service.ts
+│   │   └── entities/
+│   ├── contacts/              # CRM de contatos
+│   │   ├── contacts.module.ts
+│   │   ├── contacts.controller.ts
+│   │   ├── contacts.service.ts
+│   │   ├── entities/
+│   │   └── tags/
+│   ├── messages/              # Mensagens e chat
+│   │   ├── messages.module.ts
+│   │   ├── messages.controller.ts
+│   │   ├── messages.service.ts
+│   │   ├── chat/
+│   │   └── webhooks/
+│   ├── campaigns/              # Campanhas e disparos
+│   │   ├── campaigns.module.ts
+│   │   ├── campaigns.controller.ts
+│   │   ├── campaigns.service.ts
+│   │   └── entities/
+│   ├── templates/             # Biblioteca de robôs
+│   │   ├── templates.module.ts
+│   │   ├── templates.controller.ts
+│   │   ├── templates.service.ts
+│   │   └── entities/
+│   └── agents/                # Atendentes
+│       ├── agents.module.ts
+│       ├── agents.controller.ts
+│       ├── agents.service.ts
+│       └── entities/
+└── database/
+    ├── migrations/
+    └── seeds/
+```
+
+## 🎯 Princípios e Regras
+
+### 1. **Separação de Responsabilidades**
+- ✅ Cada módulo deve ter responsabilidade única e bem definida
+- ✅ Services contêm lógica de negócio
+- ✅ Controllers apenas recebem requisições e retornam respostas
+- ✅ Entities representam modelos de dados
+- ✅ DTOs para validação de entrada/saída
+
+### 2. **Dependency Injection**
+- ✅ Sempre usar injeção de dependências do NestJS
+- ✅ Evitar `new Class()` dentro de services
+- ✅ Usar interfaces para abstrações quando necessário
+
+### 3. **Validação de Dados**
+- ✅ Sempre usar DTOs com `class-validator` e `class-transformer`
+- ✅ Validar entrada em todos os endpoints
+- ✅ Usar `ValidationPipe` globalmente
+
+### 4. **Tratamento de Erros**
+- ✅ Criar exceptions customizadas quando necessário
+- ✅ Usar `ExceptionFilter` para tratamento global
+- ✅ Retornar mensagens de erro consistentes
+- ✅ Logar erros adequadamente
+
+### 5. **Banco de Dados**
+- ✅ Usar TypeORM ou Prisma (definir qual)
+- ✅ Criar migrations para todas as mudanças de schema
+- ✅ Usar transactions para operações críticas
+- ✅ Índices em campos de busca frequente
+- ✅ Soft delete quando apropriado
+
+### 6. **Integração WAHA**
+- ✅ Criar service dedicado para comunicação com WAHA
+- ✅ Tratar erros de conexão/desconexão
+- ✅ Implementar retry logic para requisições falhas
+- ✅ Webhooks para receber mensagens em tempo real
+- ✅ Gerenciar múltiplas sessões WhatsApp
+
+### 7. **WebSockets**
+- ✅ Usar `@nestjs/websockets` para chat em tempo real
+- ✅ Gateways separados por funcionalidade
+- ✅ Autenticação em conexões WebSocket
+- ✅ Gerenciar rooms para conversas
+
+### 8. **Segurança**
+- ✅ Autenticação JWT obrigatória
+- ✅ Hash de senhas com bcrypt
+- ✅ Rate limiting em endpoints públicos
+- ✅ CORS configurado adequadamente
+- ✅ Validação de inputs para prevenir SQL injection
+- ✅ Sanitização de dados de entrada
+
+### 9. **Performance**
+- ✅ Cache com Redis para dados frequentes
+- ✅ Paginação em listagens
+- ✅ Lazy loading de relacionamentos pesados
+- ✅ Índices de banco de dados otimizados
+- ✅ Queries otimizadas (evitar N+1)
+
+### 10. **Testes**
+- ✅ Unit tests para services
+- ✅ Integration tests para controllers
+- ✅ E2E tests para fluxos críticos
+- ✅ Cobertura mínima de 70%
+
+### 11. **Logging**
+- ✅ Usar Logger do NestJS
+- ✅ Logs estruturados (JSON)
+- ✅ Níveis apropriados (error, warn, log, debug)
+- ✅ Não logar informações sensíveis
+
+### 12. **Ambiente e Configuração**
+- ✅ Usar `@nestjs/config` para variáveis de ambiente
+- ✅ Validação de variáveis obrigatórias no startup
+- ✅ Diferentes configs para dev/staging/prod
+- ✅ Não commitar `.env` files
+
+### 13. **Documentação**
+- ✅ Swagger/OpenAPI para documentação de API
+- ✅ Comentários JSDoc em funções complexas
+- ✅ README atualizado
+- ✅ Documentação de endpoints
+
+### 14. **Código**
+- ✅ TypeScript strict mode
+- ✅ ESLint e Prettier configurados
+- ✅ Nomes descritivos para variáveis/funções
+- ✅ Funções pequenas e focadas (< 50 linhas)
+- ✅ Evitar código duplicado (DRY)
+
+### 15. **Fluxos de Conversa**
+- ✅ Estrutura de dados para representar fluxos
+- ✅ Validação de fluxos antes de salvar
+- ✅ Engine para executar fluxos
+- ✅ Suporte a condições, loops, delays
+
+### 16. **Mensagens**
+- ✅ Suporte a texto, imagem, vídeo, áudio, documentos
+- ✅ Templates de mensagens
+- ✅ Variáveis dinâmicas em mensagens
+- ✅ Histórico completo de conversas
+
+### 17. **Campanhas**
+- ✅ Agendamento de disparos
+- ✅ Segmentação de contatos
+- ✅ Rate limiting para evitar bloqueios
+- ✅ Status de entrega e leitura
+
+### 18. **Multi-tenancy**
+- ✅ Isolamento de dados por usuário/organização
+- ✅ Middleware para identificar tenant
+- ✅ Queries filtradas por tenant
+
+## 📦 Dependências Recomendadas
+
+```json
+{
+  "@nestjs/common": "^11.0.0",
+  "@nestjs/core": "^11.0.0",
+  "@nestjs/config": "^3.0.0",
+  "@nestjs/jwt": "^10.0.0",
+  "@nestjs/passport": "^10.0.0",
+  "@nestjs/websockets": "^11.0.0",
+  "@nestjs/platform-socket.io": "^11.0.0",
+  "passport": "^0.7.0",
+  "passport-jwt": "^4.0.0",
+  "bcrypt": "^5.1.0",
+  "class-validator": "^0.14.0",
+  "class-transformer": "^0.5.1",
+  "typeorm": "^0.3.17",
+  "pg": "^8.11.0",
+  "redis": "^4.6.0",
+  "axios": "^1.6.0",
+  "socket.io": "^4.5.0"
+}
+```
+
+## 🔄 Fluxo de Desenvolvimento
+
+1. **Criar módulo**: `nest g module modules/nome-modulo`
+2. **Criar controller**: `nest g controller modules/nome-modulo`
+3. **Criar service**: `nest g service modules/nome-modulo`
+4. **Criar entity**: `nest g class modules/nome-modulo/entities/nome-entity`
+5. **Criar DTO**: `nest g class modules/nome-modulo/dto/nome-dto`
+6. **Criar migration**: `typeorm migration:create`
+7. **Testar**: `pnpm test`
+8. **Rodar**: `pnpm start:dev`
+
+## 🚫 Anti-patterns a Evitar
+
+- ❌ Lógica de negócio em controllers
+- ❌ Queries SQL diretas sem ORM
+- ❌ Tratamento de erros genérico demais
+- ❌ Dependências circulares
+- ❌ Código duplicado
+- ❌ Variáveis mágicas (usar constants)
+- ❌ Callbacks aninhados (usar async/await)
+- ❌ Logs de informações sensíveis

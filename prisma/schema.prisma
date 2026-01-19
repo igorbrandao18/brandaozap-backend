@@ -1,0 +1,313 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  avatar    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  whatsappSessions WhatsAppSession[]
+  contacts         Contact[]
+  contactTags      ContactTag[]
+  messages         Message[]
+  conversations    Conversation[]
+  keywords         Keyword[]
+  flows            Flow[]
+  campaigns        Campaign[]
+  templates        Template[]
+  agents           Agent[]
+
+  @@map("users")
+}
+
+model WhatsAppSession {
+  id           String   @id @default(uuid())
+  name         String
+  sessionId    String   @unique
+  status       SessionStatus @default(STARTING)
+  qrCode       String?
+  phoneNumber  String?
+  profileName  String?
+  profilePicture String?
+  isActive     Boolean  @default(true)
+  userId       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt   DateTime?
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  conversations Conversation[]
+  campaigns    Campaign[]
+
+  @@map("whatsapp_sessions")
+}
+
+enum SessionStatus {
+  STARTING
+  QRCODE
+  WORKING
+  FAILED
+  STOPPED
+}
+
+model Contact {
+  id          String   @id @default(uuid())
+  name        String
+  phoneNumber String   @unique
+  email       String?
+  avatar      String?
+  customFields Json?
+  notes       String?
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt  DateTime?
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags         ContactTag[] @relation("ContactTags")
+  messages     Message[]
+  conversations Conversation[]
+
+  @@map("contacts")
+}
+
+model ContactTag {
+  id        String   @id @default(uuid())
+  name      String
+  color     String
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts  Contact[] @relation("ContactTags")
+
+  @@map("contact_tags")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  messageId       String
+  type            MessageType @default(TEXT)
+  direction       MessageDirection
+  status          MessageStatus @default(PENDING)
+  text            String?  @db.Text
+  mediaUrl        String?
+  fileName        String?
+  mimeType        String?
+  metadata        Json?
+  from            String
+  to              String
+  quotedMessageId String?
+  sessionId       String
+  contactId       String?
+  userId          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  session         WhatsAppSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contact         Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, from, createdAt])
+  @@index([sessionId, to, createdAt])
+  @@map("messages")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  LOCATION
+  CONTACT
+}
+
+enum MessageDirection {
+  INCOMING
+  OUTGOING
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model Conversation {
+  id              String   @id @default(uuid())
+  phoneNumber     String
+  lastMessage     String?  @db.Text
+  lastMessageType String?
+  unreadCount     Int      @default(0)
+  isArchived      Boolean  @default(false)
+  sessionId       String
+  contactId       String?
+  userId          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  session         WhatsAppSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contact         Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, phoneNumber])
+  @@index([sessionId, phoneNumber])
+  @@map("conversations")
+}
+
+model Keyword {
+  id        String   @id @default(uuid())
+  keyword   String
+  matchType KeywordMatchType @default(CONTAINS)
+  response  String   @db.Text
+  priority  Int      @default(0)
+  isActive  Boolean  @default(true)
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("keywords")
+}
+
+enum KeywordMatchType {
+  EXACT
+  CONTAINS
+  STARTS_WITH
+  REGEX
+}
+
+model Flow {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  nodes       Json
+  edges       Json
+  isActive    Boolean  @default(false)
+  version     Int      @default(1)
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt  DateTime?
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("flows")
+}
+
+model Campaign {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?  @db.Text
+  message         String   @db.Text
+  recipients      Json
+  status          CampaignStatus @default(DRAFT)
+  scheduledAt     DateTime?
+  totalRecipients Int      @default(0)
+  sentCount       Int      @default(0)
+  deliveredCount  Int      @default(0)
+  readCount       Int      @default(0)
+  failedCount     Int      @default(0)
+  sessionId       String
+  userId          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt      DateTime?
+
+  // Relations
+  session         WhatsAppSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model Template {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  category    TemplateCategory @default(OUTROS)
+  flowData    Json
+  isPublic    Boolean  @default(false)
+  userId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt  DateTime?
+
+  // Relations
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("templates")
+}
+
+enum TemplateCategory {
+  AGENDAMENTO
+  ORCAMENTO
+  INDICACAO
+  EBOOK
+  FAQ
+  OUTROS
+}
+
+model Agent {
+  id                  String   @id @default(uuid())
+  name                String
+  email               String   @unique
+  password            String
+  status              AgentStatus @default(OFFLINE)
+  activeConversations Int      @default(0)
+  totalConversations  Int      @default(0)
+  isActive            Boolean  @default(true)
+  userId              String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt          DateTime?
+
+  // Relations
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("agents")
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+  AWAY
+}
